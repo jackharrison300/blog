@@ -3,12 +3,12 @@ import { getPageMap } from 'nextra/page-map'
  
 export async function getPosts() {
   console.log(normalizePages({
-    list: await getPageMap('/posts'),
-    route: '/posts'
+    list: await getPageMap('/'),
+    route: '/'
   }))
   const { directories } = normalizePages({
-    list: await getPageMap('/posts'),
-    route: '/posts'
+    list: await getPageMap('/'),
+    route: '/'
   })
   return directories
     .filter(post => post.name !== 'index')

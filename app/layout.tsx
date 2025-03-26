@@ -5,7 +5,7 @@ import Link from 'next/link'
 import 'nextra-theme-blog/style.css'
  
 export const metadata = {
-  title: 'Blog Example'
+  title: 'Zoomer Contemplation'
 }
  
 export default async function RootLayout({ children }) {
@@ -17,7 +17,7 @@ export default async function RootLayout({ children }) {
         <Layout>
           <Navbar pageMap={await getPageMap('/')}>
             <Link href="/" style={{ marginRight: 'auto', fontWeight: 'bold', fontSize: '1.25rem' }}>
-              My Blog
+              Zoomer Contemplation
             </Link>
             <Search />
             <ThemeSwitch />
