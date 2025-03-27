@@ -40,20 +40,59 @@ export class InfraStack extends cdk.Stack {
       region: 'us-east-1', // CloudFront requires certificates in us-east-1
     });
     
+    // Create a CloudFront function to append .html to URLs without extensions
+    const appendHtmlFunction = new cloudfront.Function(this, 'AppendHtmlFunction', {
+      code: cloudfront.FunctionCode.fromInline(`
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          
+          // Don't modify requests that already have file extensions or end with a slash
+          if (uri.includes('.') || uri.endsWith('/')) {
+            return request;
+          }
+          
+          // Don't modify if it's trying to access a specific file in a folder
+          if (uri.split('/').length > 2 && !uri.endsWith('/')) {
+            return request;
+          }
+          
+          // Append .html to the URI
+          request.uri = uri + '.html';
+          
+          return request;
+        }
+      `),
+      comment: 'Append .html extension to URLs without extensions'
+    });
+    
     // Create a CloudFront distribution to serve the website
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
         origin: new origins.S3Origin(siteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        functionAssociations: [
+          {
+            function: appendHtmlFunction,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST
+          }
+        ]
       },
       domainNames: [siteDomain],
       certificate: certificate,
       defaultRootObject: 'index.html',
+      // Add error handling for SPA routes - this is needed because direct route accesses 
+      // will return 403 when the file doesn't exist in S3
       errorResponses: [
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html'
+        },
         {
           httpStatus: 404,
           responseHttpStatus: 200,
-          responsePagePath: '/index.html' // SPA support - redirects 404s to index.html
+          responsePagePath: '/index.html'
         }
       ]
     });
@@ -65,7 +104,7 @@ export class InfraStack extends cdk.Stack {
       distribution,
       distributionPaths: ['/*']
     });
-
+    
     // Create a Route53 A record that points to the CloudFront distribution
     new route53.ARecord(this, 'SiteAliasRecord', {
       recordName: siteDomain,
