@@ -19,7 +19,7 @@ export default async function RootLayout({ children }) {
             <Link href="/" style={{ marginRight: 'auto', fontWeight: 'bold', fontSize: '1.25rem' }}>
               Zoomer Contemplation
             </Link>
-            <Search />
+            {/* <Search /> */}
             <ThemeSwitch />
           </Navbar>
  
