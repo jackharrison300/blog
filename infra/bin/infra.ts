@@ -17,5 +17,11 @@ new InfraStack(app, 'InfraStack', {
   // env: { account: '123456789012', region: 'us-east-1' },
 
   /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
+  domainName: 'zoomercontemplation.com', // Replace with your actual domain
+  siteSubDomain: 'www',         // Optional: set to empty string if not needed
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION
+  }
 });
 app.synth();
