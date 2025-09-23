@@ -10,7 +10,6 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 
 interface StaticSiteStackProps extends cdk.StackProps {
   domainName: string;      // e.g., example.com
-  siteSubDomain?: string;  // e.g., www (optional)
 }
 
 export class InfraStack extends cdk.Stack {
@@ -18,24 +17,34 @@ export class InfraStack extends cdk.Stack {
     super(scope, id, props);
     
     const domainName = props.domainName;
-    const siteSubDomain = props.siteSubDomain || '';
-    const siteDomain = siteSubDomain ? `${siteSubDomain}.${domainName}` : domainName;
+    const wwwDomain = `www.${domainName}`;
+    
+    // Look up the hosted zone
+    const zone = route53.HostedZone.fromLookup(this, 'Zone', {
+      domainName: domainName
+    });
 
-    // Create an S3 bucket to store the website
+    // Create the main S3 bucket for the root domain
     const siteBucket = new s3.Bucket(this, 'SiteBucket', {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL
     });
 
-    // Look up the hosted zone
-    const zone = route53.HostedZone.fromLookup(this, 'Zone', {
-      domainName: domainName
+    // Create redirect bucket for the www subdomain
+    const wwwRedirectBucket = new s3.Bucket(this, 'WwwRedirectBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      websiteRedirect: {
+        hostName: domainName,
+        protocol: s3.RedirectProtocol.HTTPS
+      }
     });
     
-    // Create an ACM certificate
-    const certificate = new acm.DnsValidatedCertificate(this, 'SiteCertificate', {
-      domainName: siteDomain,
+    // Create certificates for both domains
+    const siteCertificate = new acm.DnsValidatedCertificate(this, 'SiteCertificate', {
+      domainName: domainName,
+      subjectAlternativeNames: [wwwDomain],
       hostedZone: zone,
       region: 'us-east-1', // CloudFront requires certificates in us-east-1
     });
@@ -66,7 +75,7 @@ export class InfraStack extends cdk.Stack {
       comment: 'Append .html extension to URLs without extensions'
     });
     
-    // Create a CloudFront distribution to serve the website
+    // Create a CloudFront distribution for the main site at the root domain
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
         origin: new origins.S3Origin(siteBucket),
@@ -78,11 +87,10 @@ export class InfraStack extends cdk.Stack {
           }
         ]
       },
-      domainNames: [siteDomain],
-      certificate: certificate,
+      domainNames: [domainName],
+      certificate: siteCertificate,
       defaultRootObject: 'index.html',
-      // Add error handling for SPA routes - this is needed because direct route accesses 
-      // will return 403 when the file doesn't exist in S3
+      // Add error handling for SPA routes
       errorResponses: [
         {
           httpStatus: 403,
@@ -97,7 +105,17 @@ export class InfraStack extends cdk.Stack {
       ]
     });
 
-    // Deploy the contents of the 'out' folder to the S3 bucket
+    // Create a CloudFront distribution for the www subdomain that will redirect to root
+    const wwwRedirectDistribution = new cloudfront.Distribution(this, 'WwwRedirectDistribution', {
+      defaultBehavior: {
+        origin: new origins.S3Origin(wwwRedirectBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+      domainNames: [wwwDomain],
+      certificate: siteCertificate,
+    });
+
+    // Deploy the contents of the 'out' folder to the main S3 bucket
     new s3deploy.BucketDeployment(this, 'DeployWebsite', {
       sources: [s3deploy.Source.asset('../out')],
       destinationBucket: siteBucket,
@@ -105,21 +123,32 @@ export class InfraStack extends cdk.Stack {
       distributionPaths: ['/*']
     });
     
-    // Create a Route53 A record that points to the CloudFront distribution
-    new route53.ARecord(this, 'SiteAliasRecord', {
-      recordName: siteDomain,
+    // Create Route53 records for both domains
+    new route53.ARecord(this, 'RootAliasRecord', {
+      recordName: domainName,
       target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(distribution)),
       zone
     });
     
-    // Output the CloudFront URL and site URL
+    new route53.ARecord(this, 'WwwAliasRecord', {
+      recordName: wwwDomain,
+      target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(wwwRedirectDistribution)),
+      zone
+    });
+    
+    // Outputs
     new cdk.CfnOutput(this, 'DistributionDomainName', {
       value: distribution.distributionDomainName,
-      description: 'The domain name of the CloudFront distribution'
+      description: 'The domain name of the main CloudFront distribution'
+    });
+    
+    new cdk.CfnOutput(this, 'WwwRedirectDistributionDomainName', {
+      value: wwwRedirectDistribution.distributionDomainName,
+      description: 'The domain name of the www redirect CloudFront distribution'
     });
     
     new cdk.CfnOutput(this, 'SiteUrl', {
-      value: `https://${siteDomain}`,
+      value: `https://${domainName}`,
       description: 'The URL of the website'
     });
   }
